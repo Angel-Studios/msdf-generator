@@ -16,7 +16,7 @@
  */
 
 import { adjustFont } from './adjustFont.js';
-import { genFont, setGeneratePaths } from './genFont.js';
+import { genFont, setGeneratePaths, generateDataUriFiles, validateDataUris } from './genFont.js';
 import fs from 'fs-extra';
 import chalk from 'chalk';
 
@@ -38,21 +38,42 @@ export async function generateFonts() {
   try {
     const files = fs.readdirSync(fontSrcDir);
     let fontsFound = 0;
+    let validationErrors: string[] = [];
+
     for (const file of files) {
       for (const ext of font_exts) {
         if (file.endsWith(ext)) {
           fontsFound++;
           const msdfFont = await genFont(file, 'msdf');
-          if (msdfFont) await adjustFont(msdfFont);
+          if (msdfFont) {
+            await adjustFont(msdfFont);
 
-          const ssdfFont = await genFont(file, 'ssdf');
-          if (ssdfFont) await adjustFont(ssdfFont);
+            // Generate data URI TypeScript files
+            const dataUriResult = await generateDataUriFiles(msdfFont);
+
+            // Validate the generated data URIs
+            const validation = await validateDataUris(msdfFont, dataUriResult);
+            if (!validation.valid) {
+              validationErrors.push(...validation.errors);
+            }
+          }
         }
       }
     }
+
     if (fontsFound === 0) {
       console.log(chalk.red.bold('No font files found in `font-src` directory. Exiting...'));
       process.exit(1);
+    }
+
+    // Report final validation status
+    console.log('\n' + '='.repeat(50));
+    if (validationErrors.length > 0) {
+      console.log(chalk.red.bold('Validation failed with errors:'));
+      validationErrors.forEach(e => console.log(chalk.red(`  • ${e}`)));
+      process.exit(1);
+    } else {
+      console.log(chalk.green.bold('✅ All fonts generated and validated successfully!'));
     }
   } catch (error) {
     console.error(chalk.red('Error generating fonts:'), error);
